@@ -155,6 +155,19 @@ class BaseMLEngineExec:
                 task.add_done_callback(empty_callback)
 
         return predictor_record
+    
+    @profiler.profile()
+    def recommend(self, model_name, project_name,
+        data_integration_ref=None,
+        fetch_data_query=None,
+        problem_definition=None,
+        join_learn_process=False,
+        label=None,
+        is_retrain=False,
+        set_active=True,
+        ):
+        pass
+        
 
     def describe(self, model_id: int, attribute: Optional[str] = None) -> pd.DataFrame:
         with self._catch_exception(model_id):
