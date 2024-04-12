@@ -1493,7 +1493,7 @@ class ExecuteCommands:
 
         return ExecuteAnswer(answer_type=ANSWER_TYPE.OK)
     
-    @mark_process("learn")
+    @mark_process("recommend")
     def answer_recommend_model(self, statement: RecommendModel, database_name):
         integration_name = database_name
         
@@ -1518,7 +1518,7 @@ class ExecuteCommands:
                 pass
         
         try: 
-            df = self.session.model_controller.create_model(statement, ml_handler)
+            df = self.session.model_controller.recommend_model(statement, ml_handler)
             resp_dict = df.to_dict(orient='split')
             
             columns = [

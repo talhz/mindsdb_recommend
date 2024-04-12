@@ -302,6 +302,21 @@ class ModelController():
         predictor_record = ml_handler.learn(**params)
 
         return ModelController.get_model_info(predictor_record)
+    
+    def recommend_model(self, statement, ml_handler):
+        params = self.prepare_create_statement(statement, ml_handler.database_controller)
+
+        existing_projects_meta = ml_handler.database_controller.get_dict(filter_type='project')
+        if params['project_name'] not in existing_projects_meta:
+            raise EntityNotExistsError('Project does not exist', params['project_name'])
+
+        project = ml_handler.database_controller.get_project(name=params['project_name'])
+        project_tables = project.get_tables()
+        if params['model_name'] in project_tables:
+            raise EntityExistsError('Model already exists', f"{params['project_name']}.{params['model_name']}")
+        predictor_record = ml_handler.recommend(**params)
+
+        return ModelController.get_model_info(predictor_record)
 
     def retrain_model(self, statement, ml_handler):
         # active setting

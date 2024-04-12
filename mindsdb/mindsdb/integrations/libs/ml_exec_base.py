@@ -166,7 +166,69 @@ class BaseMLEngineExec:
         is_retrain=False,
         set_active=True,
         ):
-        pass
+        target = problem_definition.get('target', [''])  # db.Predictor expects Column(Array(String))
+
+        project = self.database_controller.get_project(name=project_name)
+
+        self.create_validation(target, problem_definition, self.integration_id)
+
+        predictor_record = db.Predictor(
+            company_id=ctx.company_id,
+            name=model_name,
+            integration_id=self.integration_id,
+            data_integration_ref=data_integration_ref,
+            fetch_data_query=fetch_data_query,
+            mindsdb_version=mindsdb_version,
+            to_predict=target,
+            learn_args=problem_definition,
+            data={'name': model_name},
+            project_id=project.id,
+            training_data_columns_count=None,
+            training_data_rows_count=None,
+            training_start_at=dt.datetime.now(),
+            status=PREDICTOR_STATUS.GENERATING,
+            label=label,
+            hostname=socket.gethostname(),
+            version=(
+                db.session.query(
+                    coalesce(func.max(db.Predictor.version), 1) + (1 if is_retrain else 0)
+                ).filter_by(
+                    company_id=ctx.company_id,
+                    name=model_name,
+                    project_id=project.id,
+                    deleted_at=null()
+                ).scalar_subquery()),
+            active=(not is_retrain),  # if create then active
+        )
+
+        db.serializable_insert(predictor_record)
+
+        with self._catch_exception(model_name):
+            task = self.base_ml_executor.apply_async(
+                task_type=ML_TASK_TYPE.RECOMMEND,
+                model_id=predictor_record.id,
+                payload={
+                    'handler_meta': {
+                        'module_path': self.handler_module.__package__,
+                        'engine': self.engine,
+                        'integration_id': self.integration_id
+                    },
+                    'context': ctx.dump(),
+                    'problem_definition': problem_definition,
+                    'set_active': set_active,
+                    'data_integration_ref': data_integration_ref,
+                    'fetch_data_query': fetch_data_query,
+                    'project_name': project_name
+                }
+            )
+
+            if join_learn_process is True:
+                task.result()
+                predictor_record = db.Predictor.query.get(predictor_record.id)
+                db.session.refresh(predictor_record)
+            else:
+                # to prevent memory leak need to add any callback
+                task.add_done_callback(empty_callback)
         
 
     def describe(self, model_id: int, attribute: Optional[str] = None) -> pd.DataFrame:

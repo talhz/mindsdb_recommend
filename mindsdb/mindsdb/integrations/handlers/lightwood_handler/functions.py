@@ -133,7 +133,6 @@ def run_fit(predictor_id: int, df: pd.DataFrame, model_storage) -> None:
         if submodel_data and fit_mixers and len(submodel_data) == len(fit_mixers):
             for i, tr_time in enumerate(fit_mixers):
                 submodel_data[i]["training_time"] = tr_time
-        predictor_record.data["submodel_data"] = submodel_data
 
         model_storage.training_state_set(
             current_state_num=5, total_states=5, state_name='Complete'
@@ -250,3 +249,17 @@ def run_finetune(df: DataFrame, args: dict, model_storage):
         if predictor_record.training_stop_at is None:
             predictor_record.training_stop_at = datetime.now()
             db.session.commit()
+
+@mark_process(name='recommend')
+def run_recommend(df: DataFrame, args: dict, model_storage) -> None:
+    # ...
+    # predicor_record.code = str
+    # db.session.commit()
+    logger.warning("I am recommending model!")
+    pass
+
+
+def recommend_code(df, problem_definition) -> str:
+    pass
+
+# TODO: write this function to get code str.

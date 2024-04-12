@@ -19,7 +19,7 @@ from mindsdb.interfaces.model.functions import get_model_record
 from mindsdb.interfaces.storage.json import get_json_storage
 from mindsdb.utilities.functions import cast_row_types
 
-from .functions import run_finetune, run_learn
+from .functions import run_finetune, run_learn, run_recommend
 
 IS_PY36 = sys.version_info[1] <= 6
 
@@ -66,6 +66,16 @@ class LightwoodHandler(BaseMLEngine):
                 for column in tss['group_by']:
                     if column.lower() not in columns:
                         raise Exception(f"There is no column '{column}' in dataframe")
+                    
+    @profiler.profile('LightwoodHandler.recommend')
+    def recommend(
+        self,
+        target: str, 
+        df: Optional[pd.DataFrame] = None, 
+        args: Optional[Dict] = None, 
+    ) -> None:
+        args['target'] = target 
+        run_recommend(df, args, self.model_storage)
 
     @profiler.profile('LightwoodHandler.create')
     def create(

@@ -17,7 +17,8 @@ from mindsdb.integrations.libs.ml_handler_process import (
     describe_process,
     create_engine_process,
     update_engine_process,
-    create_validation_process
+    create_validation_process, 
+    recommend_process
 )
 
 
@@ -273,6 +274,19 @@ class ProcessCache:
                 'base_model_id': payload.get('base_model_id'),
                 'set_active': payload['set_active'],
                 'integration_id': integration_id,
+                'module_path': handler_module_path
+            }
+        elif task_type == ML_TASK_TYPE.RECOMMEND:
+            func = recommend_process
+            kwargs = {
+                'data_integration_ref': payload['data_integration_ref'], 
+                'problem_definition': payload['problem_definition'], 
+                'fetch_data_query': payload['fetch_data_query'], 
+                'project_name': payload['project_name'], 
+                'model_id': model_id, 
+                'base_model_id': payload.get('base_model_id'), 
+                'set_active': payload['set_active'], 
+                'integration_id': integration_id, 
                 'module_path': handler_module_path
             }
         elif task_type == ML_TASK_TYPE.PREDICT:
