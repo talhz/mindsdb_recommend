@@ -337,12 +337,12 @@ class Predictor(PredictorInterface):
     @timed_predictor
     def predict(self, data: pd.DataFrame, args: Dict = {{}}) -> pd.DataFrame:
         model = LinearRegression()
-        regr.fit(self.X_train, self.y_train)
+        model.fit(self.X_train, self.y_train)
 
     def test(
         self, data: pd.DataFrame, metrics: list, args: Dict[str, object] = {{}}, strict: bool = False
         ) -> pd.DataFrame:
 
-        regr.score(self.X_test, self.y_test)
+        print(model.score(self.X_test, self.y_test))
 """
     return predictor_code
