@@ -229,7 +229,7 @@ class BaseMLEngineExec:
             else:
                 # to prevent memory leak need to add any callback
                 task.add_done_callback(empty_callback)
-        
+        return predictor_record
 
     def describe(self, model_id: int, attribute: Optional[str] = None) -> pd.DataFrame:
         with self._catch_exception(model_id):

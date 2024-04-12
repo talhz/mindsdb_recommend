@@ -251,9 +251,15 @@ def run_finetune(df: DataFrame, args: dict, model_storage):
             db.session.commit()
 
 @mark_process(name='recommend')
-def run_recommend(df: DataFrame, predictor_id: int,args: dict, model_storage) -> None:
+def run_recommend(df: DataFrame,args: dict, model_storage) -> None:
+    
+    # prepare
+    predictor_id = model_storage.predictor_id
+    predictor_record = db.Predictor.query.with_for_update().get(predictor_id)
+    predictor_record.training_start_at = datetime.now()
+    db.session.commit()
     model_storage.training_state_set(
-        current_state_num=1, total_states=5, state_name='Generating problem definition'
+        current_state_num=1, total_states=4, state_name='Generating problem definition'
     )
     json_ai_override = args.pop('using', {})
 
@@ -272,77 +278,149 @@ def run_recommend(df: DataFrame, predictor_id: int,args: dict, model_storage) ->
                 args['timeseries_settings'][tss_key] = json_ai_override.pop(k)
 
     problem_definition = lightwood.ProblemDefinition.from_dict(args)
+    # generate code
 
     model_storage.training_state_set(
-        current_state_num=2, total_states=5, state_name='Generating JsonAI'
+        current_state_num=2, total_states=4, state_name='Generating code'
     )
     
     code = recommend_code(df, problem_definition)
+    logger.warning(f"Get code: {code}")
 
     predictor_record = db.Predictor.query.with_for_update().get(predictor_id)
     predictor_record.code = code
+    db.session.commit()
+    # train
+    
+    try:
+        predictor_record = db.Predictor.query.with_for_update().get(predictor_id)
+        assert predictor_record is not None
+
+        predictor_record.data = {'training_log': 'training'}
+        predictor_record.status = PREDICTOR_STATUS.TRAINING
+        db.session.commit()
+
+        model_storage.training_state_set(
+            current_state_num=3, total_states=4, state_name='Training model'
+        )
+        predictor: lightwood.PredictorInterface = lightwood.predictor_from_code(
+            predictor_record.code
+        )
+        predictor.learn(df)
+
+        db.session.refresh(predictor_record)
+
+        fs = FileStorage(
+            resource_group=RESOURCE_GROUP.PREDICTOR, resource_id=predictor_id, sync=True
+        )
+        predictor.save(fs.folder_path / fs.folder_name)
+        fs.push(compression_level=0)
+
+        predictor_record.data = predictor.model_analysis.to_dict()
+
+        # getting training time for each tried model. it is possible to do
+        # after training only
+        fit_mixers = list(
+            predictor.runtime_log[x]
+            for x in predictor.runtime_log
+            if isinstance(x, tuple) and x[0] == "fit_mixer"
+        )
+        submodel_data = predictor_record.data.get("submodel_data", [])
+        # add training time to other mixers info
+        if submodel_data and fit_mixers and len(submodel_data) == len(fit_mixers):
+            for i, tr_time in enumerate(fit_mixers):
+                submodel_data[i]["training_time"] = tr_time
+
+        model_storage.training_state_set(
+            current_state_num=4, total_states=4, state_name='Complete'
+        )
+        predictor_record.dtype_dict = predictor.dtype_dict
+        db.session.commit()
+    except Exception as e:
+        db.session.refresh(predictor_record)
+        predictor_record.data = {'error': f'{traceback.format_exc()}\nMain error: {e}'}
+        db.session.commit()
+        raise e
+    
+    predictor_record.status = PREDICTOR_STATUS.COMPLETE
+    predictor_record.training_stop_at = datetime.now()
     db.session.commit()
 
 
 def recommend_code(df, problem_definition) -> str:
     predictor_code = f"""
-import numpy as np
-import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-from sklearn import preprocessing, svm
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
+# import numpy as np
+# import pandas as pd
+# import seaborn as sns
+# import matplotlib.pyplot as plt
+# from sklearn import preprocessing, svm
+# from sklearn.model_selection import train_test_split
+# from sklearn.linear_model import LinearRegression
 
 
 class Predictor(PredictorInterface):
-    # target: str
-    # mixers: List[BaseMixer]
-    # encoders: Dict[str, BaseEncoder]
-    # ensemble: BaseEnsemble
-    # mode: str
+
+    target: str
+    mixers: List[BaseMixer]
+    encoders: Dict[str, BaseEncoder]
+    ensemble: BaseEnsemble
+    mode: str
 
     def __init__(self):
-        self.data = 
+        pass
 
     @timed_predictor
     def analyze_data(self, data: pd.DataFrame) -> None:
         # Perform a statistical analysis on the unprocessed data
-    pass
+        pass
 
     @timed_predictor
     def preprocess(self, data: pd.DataFrame) -> pd.DataFrame:
-        # Preprocess and clean data
-        self.X = 
-        self.y = 
-    pass
+        pass
 
     @timed_predictor
     def split(self, data: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         # Split the data into training/testing splits
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(self.X, self.y, test_size = 0.25)
-
-    pass
+        pass
     
     @timed_predictor
     def prepare(self, data: Dict[str, pd.DataFrame]) -> None:
         # Prepare encoders to featurize data
-    pass
+        pass
     
     @timed_predictor
     def featurize(self, split_data: Dict[str, pd.DataFrame]):
         # Featurize data into numerical representations for models
-    pass
+        pass
     
     @timed_predictor
     def predict(self, data: pd.DataFrame, args: Dict = {{}}) -> pd.DataFrame:
-        model = LinearRegression()
-        model.fit(self.X_train, self.y_train)
-
+        pass
+        
     def test(
         self, data: pd.DataFrame, metrics: list, args: Dict[str, object] = {{}}, strict: bool = False
         ) -> pd.DataFrame:
 
-        print(model.score(self.X_test, self.y_test))
+        pass
 """
+
+    # try:
+    #     import black
+    # except Exception:
+    #     black = None
+
+    # if black is not None:
+    #     try:
+    #         formatted_predictor_code = black.format_str(predictor_code, mode=black.FileMode())
+
+    #         if type(_predictor_from_code(formatted_predictor_code)).__name__ == 'Predictor':
+    #             predictor_code = formatted_predictor_code
+    #         else:
+    #             logger.info('Black formatter output is invalid, predictor code might be a bit ugly')
+
+    #     except Exception:
+    #         logger.info('Black formatter failed to run, predictor code might be a bit ugly')
+    # else:
+    #     logger.info('Unable to import black formatter, predictor code might be a bit ugly.')
+
     return predictor_code
