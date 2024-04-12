@@ -12,7 +12,7 @@ pip3 install -e .
 pip install mindsdb[lightwood]
 cd ..
 
-cd mindsdb_parser
+cd mindsdb_sql
 pip3 install -e .
 cd ..
 ```
