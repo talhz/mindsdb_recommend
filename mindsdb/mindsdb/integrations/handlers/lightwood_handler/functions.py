@@ -251,15 +251,98 @@ def run_finetune(df: DataFrame, args: dict, model_storage):
             db.session.commit()
 
 @mark_process(name='recommend')
-def run_recommend(df: DataFrame, args: dict, model_storage) -> None:
-    # ...
-    # predicor_record.code = str
-    # db.session.commit()
-    logger.warning("I am recommending model!")
-    pass
+def run_recommend(df: DataFrame, predictor_id: int,args: dict, model_storage) -> None:
+    model_storage.training_state_set(
+        current_state_num=1, total_states=5, state_name='Generating problem definition'
+    )
+    json_ai_override = args.pop('using', {})
+
+    if 'dtype_dict' in json_ai_override:
+        args['dtype_dict'] = json_ai_override.pop('dtype_dict')
+
+    if 'problem_definition' in json_ai_override:
+        args = {**args, **json_ai_override['problem_definition']}
+
+    if 'timeseries_settings' in args:
+        for tss_key in [
+            f.name for f in dataclasses.fields(lightwood.api.TimeseriesSettings)
+        ]:
+            k = f'timeseries_settings.{tss_key}'
+            if k in json_ai_override:
+                args['timeseries_settings'][tss_key] = json_ai_override.pop(k)
+
+    problem_definition = lightwood.ProblemDefinition.from_dict(args)
+
+    model_storage.training_state_set(
+        current_state_num=2, total_states=5, state_name='Generating JsonAI'
+    )
+    
+    code = recommend_code(df, problem_definition)
+
+    predictor_record = db.Predictor.query.with_for_update().get(predictor_id)
+    predictor_record.code = code
+    db.session.commit()
 
 
 def recommend_code(df, problem_definition) -> str:
+    predictor_code = f"""
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn import preprocessing, svm
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+
+
+class Predictor(PredictorInterface):
+    # target: str
+    # mixers: List[BaseMixer]
+    # encoders: Dict[str, BaseEncoder]
+    # ensemble: BaseEnsemble
+    # mode: str
+
+    def __init__(self):
+        self.data = 
+
+    @timed_predictor
+    def analyze_data(self, data: pd.DataFrame) -> None:
+        # Perform a statistical analysis on the unprocessed data
     pass
 
-# TODO: write this function to get code str.
+    @timed_predictor
+    def preprocess(self, data: pd.DataFrame) -> pd.DataFrame:
+        # Preprocess and clean data
+        self.X = 
+        self.y = 
+    pass
+
+    @timed_predictor
+    def split(self, data: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+        # Split the data into training/testing splits
+        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(self.X, self.y, test_size = 0.25)
+
+    pass
+    
+    @timed_predictor
+    def prepare(self, data: Dict[str, pd.DataFrame]) -> None:
+        # Prepare encoders to featurize data
+    pass
+    
+    @timed_predictor
+    def featurize(self, split_data: Dict[str, pd.DataFrame]):
+        # Featurize data into numerical representations for models
+    pass
+    
+    @timed_predictor
+    def predict(self, data: pd.DataFrame, args: Dict = {{}}) -> pd.DataFrame:
+        model = LinearRegression()
+        regr.fit(self.X_train, self.y_train)
+
+    def test(
+        self, data: pd.DataFrame, metrics: list, args: Dict[str, object] = {{}}, strict: bool = False
+        ) -> pd.DataFrame:
+
+        regr.score(self.X_test, self.y_test)
+"""
+    return predictor_code
