@@ -252,14 +252,28 @@ def run_finetune(df: DataFrame, args: dict, model_storage):
 
 @mark_process(name='recommend')
 def run_recommend(df: DataFrame,args: dict, model_storage) -> None:
-    
-    # prepare
+    if df is None or df.shape[0] == 0:
+        raise Exception(
+            'No input data. Ensure the data source is healthy and try again.'
+        )
+
     predictor_id = model_storage.predictor_id
+
     predictor_record = db.Predictor.query.with_for_update().get(predictor_id)
     predictor_record.training_start_at = datetime.now()
     db.session.commit()
+
+    run_generate_with_recommend(df, predictor_id, model_storage, args)
+    run_fitall(predictor_id, df, model_storage)
+
+    predictor_record.status = PREDICTOR_STATUS.COMPLETE
+    predictor_record.training_stop_at = datetime.now()
+    db.session.commit()
+
+@mark_process(name='learn')
+def run_generate_with_recommend(df: DataFrame, predictor_id: int, model_storage, args: dict = None):
     model_storage.training_state_set(
-        current_state_num=1, total_states=4, state_name='Generating problem definition'
+        current_state_num=1, total_states=5, state_name='Generating problem definition'
     )
     json_ai_override = args.pop('using', {})
 
@@ -278,20 +292,31 @@ def run_recommend(df: DataFrame,args: dict, model_storage) -> None:
                 args['timeseries_settings'][tss_key] = json_ai_override.pop(k)
 
     problem_definition = lightwood.ProblemDefinition.from_dict(args)
-    # generate code
 
     model_storage.training_state_set(
-        current_state_num=2, total_states=4, state_name='Generating code'
+        current_state_num=2, total_states=5, state_name='Generating JsonAI'
     )
-    
-    code = recommend_code(df, problem_definition)
-    logger.warning(f"Get code: {code}")
+    json_ai = lightwood.json_ai_from_problem(df, problem_definition)
+    json_ai = json_ai.to_dict()
+    unpack_jsonai_old_args(json_ai_override)
+    json_ai_override = brack_to_mod(json_ai_override)
+    rep_recur(json_ai, json_ai_override)
+    json_ai = JsonAI.from_dict(json_ai)
+
+    model_storage.training_state_set(
+        current_state_num=3, total_states=5, state_name='Generating code'
+    )
+    code = lightwood.code_from_json_ai(json_ai)
 
     predictor_record = db.Predictor.query.with_for_update().get(predictor_id)
     predictor_record.code = code
     db.session.commit()
-    # train
-    
+
+    json_storage = get_json_storage(resource_id=predictor_id)
+    json_storage.set('json_ai', json_ai.to_dict())
+
+@mark_process(name='learn')
+def run_fitall(predictor_id: int, df: pd.DataFrame, model_storage) -> None:
     try:
         predictor_record = db.Predictor.query.with_for_update().get(predictor_id)
         assert predictor_record is not None
@@ -301,7 +326,7 @@ def run_recommend(df: DataFrame,args: dict, model_storage) -> None:
         db.session.commit()
 
         model_storage.training_state_set(
-            current_state_num=3, total_states=4, state_name='Training model'
+            current_state_num=4, total_states=5, state_name='Training model'
         )
         predictor: lightwood.PredictorInterface = lightwood.predictor_from_code(
             predictor_record.code
@@ -317,7 +342,6 @@ def run_recommend(df: DataFrame,args: dict, model_storage) -> None:
         fs.push(compression_level=0)
 
         predictor_record.data = predictor.model_analysis.to_dict()
-
         # getting training time for each tried model. it is possible to do
         # after training only
         fit_mixers = list(
@@ -326,13 +350,14 @@ def run_recommend(df: DataFrame,args: dict, model_storage) -> None:
             if isinstance(x, tuple) and x[0] == "fit_mixer"
         )
         submodel_data = predictor_record.data.get("submodel_data", [])
+        logger.warning(f'submodel data: {submodel_data}')
         # add training time to other mixers info
         if submodel_data and fit_mixers and len(submodel_data) == len(fit_mixers):
             for i, tr_time in enumerate(fit_mixers):
                 submodel_data[i]["training_time"] = tr_time
 
         model_storage.training_state_set(
-            current_state_num=4, total_states=4, state_name='Complete'
+            current_state_num=5, total_states=5, state_name='Complete'
         )
         predictor_record.dtype_dict = predictor.dtype_dict
         db.session.commit()
@@ -341,86 +366,3 @@ def run_recommend(df: DataFrame,args: dict, model_storage) -> None:
         predictor_record.data = {'error': f'{traceback.format_exc()}\nMain error: {e}'}
         db.session.commit()
         raise e
-    
-    predictor_record.status = PREDICTOR_STATUS.COMPLETE
-    predictor_record.training_stop_at = datetime.now()
-    db.session.commit()
-
-
-def recommend_code(df, problem_definition) -> str:
-    predictor_code = f"""
-# import numpy as np
-# import pandas as pd
-# import seaborn as sns
-# import matplotlib.pyplot as plt
-# from sklearn import preprocessing, svm
-# from sklearn.model_selection import train_test_split
-# from sklearn.linear_model import LinearRegression
-
-
-class Predictor(PredictorInterface):
-
-    target: str
-    mixers: List[BaseMixer]
-    encoders: Dict[str, BaseEncoder]
-    ensemble: BaseEnsemble
-    mode: str
-
-    def __init__(self):
-        pass
-
-    @timed_predictor
-    def analyze_data(self, data: pd.DataFrame) -> None:
-        # Perform a statistical analysis on the unprocessed data
-        pass
-
-    @timed_predictor
-    def preprocess(self, data: pd.DataFrame) -> pd.DataFrame:
-        pass
-
-    @timed_predictor
-    def split(self, data: pd.DataFrame) -> Dict[str, pd.DataFrame]:
-        # Split the data into training/testing splits
-        pass
-    
-    @timed_predictor
-    def prepare(self, data: Dict[str, pd.DataFrame]) -> None:
-        # Prepare encoders to featurize data
-        pass
-    
-    @timed_predictor
-    def featurize(self, split_data: Dict[str, pd.DataFrame]):
-        # Featurize data into numerical representations for models
-        pass
-    
-    @timed_predictor
-    def predict(self, data: pd.DataFrame, args: Dict = {{}}) -> pd.DataFrame:
-        pass
-        
-    def test(
-        self, data: pd.DataFrame, metrics: list, args: Dict[str, object] = {{}}, strict: bool = False
-        ) -> pd.DataFrame:
-
-        pass
-"""
-
-    # try:
-    #     import black
-    # except Exception:
-    #     black = None
-
-    # if black is not None:
-    #     try:
-    #         formatted_predictor_code = black.format_str(predictor_code, mode=black.FileMode())
-
-    #         if type(_predictor_from_code(formatted_predictor_code)).__name__ == 'Predictor':
-    #             predictor_code = formatted_predictor_code
-    #         else:
-    #             logger.info('Black formatter output is invalid, predictor code might be a bit ugly')
-
-    #     except Exception:
-    #         logger.info('Black formatter failed to run, predictor code might be a bit ugly')
-    # else:
-    #     logger.info('Unable to import black formatter, predictor code might be a bit ugly.')
-
-    return predictor_code
