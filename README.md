@@ -42,6 +42,13 @@ PREDICT target_column
 - FROM ... is the syntax to get x (sample) data to be used in model
 - PREDICT ... is the syntax to define y (label) data to be used in model
 
+To check the recommendation result, simply use the following query:
+```
+DRSCRIBE project_name.predictor_name;
+```
+
+The recommendation result is given in the last column, as well as other information of the best model.
+
 # Parser
  
 ## Psuedo logic of connections between sql and machine learning related codes
