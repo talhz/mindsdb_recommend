@@ -435,15 +435,16 @@ class ModelController():
         project_name = project.name
         model = project.get_model_by_id(model_id=predictor_record.id)
         submodel_data = predictor_record.data.get("submodel_data", [])
-        best_model = [model for model in submodel_data if model['is_best']]
-        logger.warning(f'submodel data herehereherehere: {submodel_data}')
+        if submodel_data:
+            submodel_data = sorted(submodel_data, key=lambda x: x['accuracy'], reverse=True)[:3]
+        recommend_model = [model['name'] for model in submodel_data]
         table_name = model['name']
         table_meta = model['metadata']
         record = [
             table_name, table_meta['engine'], project_name, table_meta['active'], table_meta['version'], table_meta['status'],
             table_meta['accuracy'], table_meta['predict'], table_meta['update_status'],
             table_meta['mindsdb_version'], table_meta['error'], table_meta['select_data_query'],
-            str(table_meta['training_options']), table_meta['label'], best_model
+            str(table_meta['training_options']), table_meta['label'], recommend_model
         ]
 
         return pd.DataFrame([record], columns=columns)
