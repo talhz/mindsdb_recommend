@@ -47,7 +47,7 @@ To check the recommendation result, simply use the following query:
 DRSCRIBE project_name.predictor_name;
 ```
 
-The recommendation result is given in the last column, as well as other information of the best model.
+The recommendation result is given in the last column. By default, it provides the top 3 models with highest accuracy. Users can then choose the model at their own discretion.
 
 # Parser
  
