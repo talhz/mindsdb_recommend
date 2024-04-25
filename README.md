@@ -1,3 +1,5 @@
+This project is based on MindsDB (https://github.com/mindsdb/mindsdb) and MindsDB_sql (https://github.com/mindsdb/mindsdb_sql). The Github repo of our project is at https://github.com/talhz/mindsdb_recommend.
+
 Instructions related to our new syntax
 
 
